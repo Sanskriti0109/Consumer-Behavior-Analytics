@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, text
 import os # Added to securely read the Environment Variable
 
 st.set_page_config(page_title="Retail Analytics Dashboard", layout="wide")
-st.title("🛒 Dynamic Consumer Behavior Analytics")
+st.title("Dynamic Consumer Behavior Analytics")
 
 # --- 5. LIVE DATABASE INTEGRATION (Read) ---
 @st.cache_data
@@ -23,6 +23,10 @@ def load_data():
     df.columns = df.columns.str.lower().str.replace(' ', '_')
     if 'purchase_amount_(usd)' in df.columns:
         df = df.rename(columns={'purchase_amount_(usd)': 'purchase_amount'})
+        
+    # ✨ FIX: Handle missing values in previous_purchases column
+    if 'previous_purchases' in df.columns:
+        df['previous_purchases'] = df['previous_purchases'].fillna(0)
         
     if 'age_group' not in df.columns:
         labels = ['Young Adult', 'Adult', 'Middle-aged', 'Senior']
@@ -47,6 +51,16 @@ filtered_df = df[
     (df['age_group'].isin(selected_age))
 ]
 
+# --- KPI METRICS ---
+st.markdown("Key Performance Indicators")
+kpi1, kpi2, kpi3 = st.columns(3)
+
+# Calculate metrics dynamically based on filters
+kpi1.metric(label="Total Records", value=len(filtered_df))
+kpi2.metric(label="Average Purchase", value=f"${filtered_df['purchase_amount'].mean():.2f}")
+kpi3.metric(label="Total Revenue", value=f"${filtered_df['purchase_amount'].sum():,.2f}")
+
+st.markdown("---")
 # --- 3. INTERACTIVE VISUALIZATIONS ---
 st.subheader("Visual Analytics")
 col1, col2 = st.columns(2)
@@ -78,7 +92,7 @@ st.dataframe(filtered_df, use_container_width=True, height=250)
 # Generate a CSV of the filtered results for download
 csv = filtered_df.to_csv(index=False).encode('utf-8')
 st.download_button(
-    label="📥 Download Filtered Data as CSV",
+    label="Download Filtered Data as CSV",
     data=csv,
     file_name='filtered_customer_data.csv',
     mime='text/csv',
@@ -127,5 +141,35 @@ with st.sidebar.form("write_back_form"):
             
         st.sidebar.success(f"Transaction recorded! Added ${new_amount} for {new_category}.")
         
+        load_data.clear()
         # This forces Streamlit to refresh the page and fetch the updated data!
         st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.header("Admin Controls")
+
+# Naya Reset Button jo original CSV ko wapas database mein daal dega
+if st.sidebar.button("Reset Database (Original 3900)"):
+    with st.spinner("Resetting database to original 3900 records..."):
+        try:
+            # 1. Original CSV file ko read karna
+            reset_df = pd.read_csv('customer_shopping_behavior.csv')
+            
+            # 2. Columns clean karna (jaise upload_data.py mein tha)
+            reset_df.columns = reset_df.columns.str.lower().str.replace(' ', '_')
+            if 'purchase_amount_(usd)' in reset_df.columns:
+                reset_df = reset_df.rename(columns={'purchase_amount_(usd)': 'purchase_amount'})
+            
+            # 3. Database se connect karke purani table ko replace karna
+            db_url = os.environ.get("DATABASE_URL")
+            engine = create_engine(db_url)
+            reset_df.to_sql("customer", engine, if_exists="replace", index=False)
+            
+            # 4. Cache clear karna taaki naya (original) data load ho
+            load_data.clear()
+            
+        except Exception as e:
+            st.sidebar.error(f"Error resetting database: {e}")
+            
+    # Page refresh karna
+    st.rerun()
